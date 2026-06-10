@@ -1,0 +1,176 @@
+services:
+
+  # ── PostgreSQL + PostGIS ─────────────────────────────────────────────────
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: aqi_postgres
+    environment:
+      POSTGRES_DB:       aqi_db
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: ${PG_PASS:-secret123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── MongoDB ──────────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7
+    container_name: aqi_mongo
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Redis ────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: aqi_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # ── Mosquitto MQTT Broker ────────────────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: aqi_mqtt
+    volumes:
+      - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mqtt_data:/mosquitto/data
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    restart: unless-stopped
+
+  # ── Zookeeper ────────────────────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: aqi_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zk_data:/var/lib/zookeeper/data
+    restart: unless-stopped
+
+  # ── Apache Kafka ─────────────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: aqi_kafka
+    depends_on: [zookeeper]
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 4
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - "9092:9092"
+    restart: unless-stopped
+
+  # ── Node.js Backend API ──────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aqi_backend
+    depends_on:
+      postgres:   { condition: service_healthy }
+      mongodb:    { condition: service_healthy }
+      mosquitto:  { condition: service_started }
+      redis:      { condition: service_started }
+    environment:
+      NODE_ENV:       production
+      PORT:           5000
+      PG_HOST:        postgres
+      PG_PORT:        5432
+      PG_DB:          aqi_db
+      PG_USER:        postgres
+      PG_PASS:        ${PG_PASS:-secret123}
+      MONGO_URI:      mongodb://mongodb:27017/aqi_reports
+      MQTT_BROKER:    mqtt://mosquitto:1883
+      KAFKA_BROKERS:  kafka:9092
+      ML_SERVICE_URL: http://ml-service:8000
+      REDIS_URL:      redis://redis:6379
+      JWT_SECRET:     ${JWT_SECRET:-change_this_jwt_secret_to_something_long_and_random}
+      JWT_REFRESH:    ${JWT_REFRESH:-change_this_refresh_secret_also_long_and_random}
+      FRONTEND_URL:   http://localhost:3001
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Python ML Service ────────────────────────────────────────────────────
+  ml-service:
+    build:
+      context: ./ml-service
+      dockerfile: Dockerfile
+    container_name: aqi_ml
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      PG_HOST:  postgres
+      PG_PORT:  5432
+      PG_DB:    aqi_db
+      PG_USER:  postgres
+      PG_PASS:  ${PG_PASS:-secret123}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ml_models:/app/app/models/saved
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── React Frontend ───────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: http://localhost:5000
+        REACT_APP_WS_URL:  http://localhost:5000
+    container_name: aqi_frontend
+    depends_on: [backend]
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:
+  mqtt_data:
+  zk_data:
+  kafka_data:
+  ml_models:
+
+networks:
+  default:
+    name: aqi_network

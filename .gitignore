@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Environment files
+.env
+!.env.example
+backend/.env
+frontend/.env
+
+# Build outputs
+frontend/build/
+dist/
+*.egg-info/
+
+# ML model files (large binary files)
+ml-service/app/models/saved/*.h5
+ml-service/app/models/saved/*.pkl
+ml-service/app/models/saved/*.pt
+!ml-service/app/models/saved/.gitkeep
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Docker volumes (local)
+postgres_data/
+mongo_data/
