@@ -5,7 +5,11 @@
  */
 const jwt  = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-this-in-production-secret';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error("FATAL ERROR: JWT_SECRET environment variable is not defined.");
+  process.exit(1);
+}
 
 /**
  * Verifies the Bearer token and attaches payload to req.user.
@@ -29,7 +33,7 @@ async function authenticate(req, res, next) {
 /**
  * Role-based authorization guard.
  * Must be used AFTER authenticate.
- * Usage: router.get('/admin', authenticate, authorize(['admin','superuser']), handler)
+ * Usage: router.get('/admin', authenticate, authorize(['admin']), handler)
  */
 function authorize(roles = []) {
   return (req, res, next) => {

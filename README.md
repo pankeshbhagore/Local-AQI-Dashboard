@@ -1,85 +1,180 @@
-# 🌿 Hyper-Local AQI & Pollution Mitigation Dashboard
+# 🌿 Smart City AQI & Pollution Mitigation Platform
 
-A full-stack, AI-powered smart-city environmental monitoring platform.  
-Real-time sensor data · ML predictions · Hotspot detection · Citizen reports · Admin dashboard
+> A production-grade, AI-powered environmental monitoring platform designed to ingest high-throughput telemetry, run predictive machine learning models, and empower citizens and officers to mitigate pollution hotspots in real time.
 
 ---
 
-## ⚡ Quick Start (Docker — 5 minutes)
+## 🎯 Architecture & Data Flow Overview
+
+This system orchestrates 8 microservices handling everything from real-time IoT ingestion to geospatial hotspot clustering. 
+
+### 1. High-Level Architecture Flowchart
+
+```mermaid
+flowchart TD
+    subgraph Edge Layer
+        Sensors[IoT Sensors & Weather Stations]
+        Citizens[Citizen Mobile App]
+    end
+
+    subgraph Messaging & Streaming
+        MQTT[Mosquitto MQTT Broker]
+        Kafka[Apache Kafka Stream Buffer]
+    end
+
+    subgraph Microservices
+        Backend[Node.js / Express API]
+        ML[Python / FastAPI ML Engine]
+    end
+
+    subgraph Data Persistence
+        PG[(PostgreSQL + PostGIS)]
+        Mongo[(MongoDB)]
+        Redis[(Redis Cache)]
+    end
+
+    subgraph Presentation
+        React[React / TypeScript Dashboard]
+        Sockets[Socket.IO Real-time Link]
+    end
+
+    %% Data flow
+    Sensors -- MQTT Topics --> MQTT
+    MQTT -- Pub/Sub Intake --> Backend
+    Backend -- Buffers telemetry --> Kafka
+    Kafka -- Batch Ingestion Worker --> PG
+    
+    Citizens -- REST/WebSockets --> Backend
+    Backend -- Citizen Reports & Users --> Mongo
+    Backend -- Real-time Updates --> Sockets
+    Sockets --> React
+    
+    Backend -- Request Predictions --> ML
+    ML -- Fetch historical 72h data --> PG
+    ML -- Caches Predictions --> Redis
+```
+
+---
+
+## 🔄 Core Processes & Lifecycles
+
+### 1. The Citizen Incident Report Lifecycle
+When a citizen spots a pollution violation (e.g., illegal garbage burning), they submit a report that flows through a strict state-machine managed by Officers and Admins.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending : Citizen submits photo & GPS
+    Pending --> Investigating : Admin assigns to Field Officer
+    Investigating --> Action_Taken : Officer acts on site
+    Investigating --> Cannot_Verify : Officer cannot find issue
+    
+    Action_Taken --> Verified : Admin verifies resolution
+    Action_Taken --> Rejected : Admin rejects resolution (Returns to Investigating)
+    Cannot_Verify --> Resolved : Admin archives report
+    
+    Verified --> [*] : Citizen awarded Green Points
+    Resolved --> [*]
+```
+
+### 2. Machine Learning Data Flow
+The AI engine runs three core models: AQI Forecasting (LSTM), Hotspot Clustering (DBSCAN), and Source Apportionment (XGBoost).
+
+```mermaid
+sequenceDiagram
+    participant React Dashboard
+    participant Node Backend
+    participant Redis Cache
+    participant Python ML Service
+    participant PostgreSQL
+
+    React Dashboard->>Node Backend: GET /api/v1/predictions/ward/5
+    Node Backend->>Redis Cache: Check Cache for Ward 5 Forecast
+    
+    alt Cache Hit
+        Redis Cache-->>Node Backend: Return Cached Forecast
+    else Cache Miss
+        Node Backend->>Python ML Service: Request Forecast
+        Python ML Service->>PostgreSQL: Fetch last 72hrs of PM2.5, Weather, Traffic
+        PostgreSQL-->>Python ML Service: Timeseries Data
+        Python ML Service->>Python ML Service: Run LSTM Inference
+        Python ML Service-->>Node Backend: Return 6h/12h/24h Forecast
+        Node Backend->>Redis Cache: Save to Cache (TTL: 1 hour)
+    end
+    
+    Node Backend-->>React Dashboard: Return JSON Data
+```
+
+---
+
+## 🔐 Strict Role-Based Access Control (RBAC)
+
+The platform guarantees secure operational boundaries using JWT Bearer tokens and strict route guards.
+
+| Role | Interface | Key Capabilities |
+| :--- | :--- | :--- |
+| **Citizen** | Public UI | • View live city-wide and ward AQI metrics.<br>• Submit geotagged pollution reports.<br>• Track report resolution and gamified 'Green Points'. |
+| **Field Officer** | Internal Staff | • Dashboard focused entirely on **actionable items**.<br>• View reports specifically assigned to them by admins.<br>• Update report statuses on the ground (e.g. `action_taken`).<br>• Access route-planning and hotspot map overlays. |
+| **Admin** | Command Center | • **Full system control and oversight.**<br>• Review reports and assign them to specific Officers.<br>• Conduct final verification of solved issues.<br>• Manage User accounts (Promote/Demote/Disable).<br>• Access "AI Copilot" capabilities for rapid data synthesis.<br>• Trigger emergency SMS/Push alert broadcasts. |
+
+---
+
+## ⚡ Quick Start Deployment (Docker)
+
+The recommended way to run this suite is via `docker compose`.
 
 ```bash
-# 1. Clone / enter the project
+# 1. Clone the repository
 cd aqi-project
 
-# 2. Copy and configure environment
+# 2. Configure secrets and variables
 cp .env.example .env
-# Edit .env — set PG_PASS, JWT_SECRET at minimum
+# Edit .env: Set secure PG_PASS, JWT_SECRET, and ML_API_KEY.
 
-# 3. Start everything
-docker-compose up -d
+# 3. Spin up the orchestration stack (Frontend, Backend, ML, DBs, Brokers)
+docker compose up --build -d
 
-# 4. Run the IoT sensor simulator
-cd tools && npm install mqtt && node sensor-simulator.js
+# 4. Generate Telemetry (Simulates 10 IoT Sensors)
+cd tools
+npm install mqtt
+node sensor-simulator.js
 
-# 5. Open the dashboard
+# 5. Access the Platform
 open http://localhost:3000
 
-# Login: admin@aqi.com / admin123
+# Default Accounts
+# Admin: admin@aqi.gov.in / Admin@123
+# Officer: officer1@aqi.gov.in / Officer@123
 ```
-
-That's it. All 8 services start automatically.
 
 ---
 
-## 🏗️ Architecture
+## 🛠️ Bare-Metal Local Development
 
-```
-IoT Sensors (MQTT) ──► MQTT Broker ──► Node.js Backend ──► PostgreSQL+PostGIS
-Satellite APIs ──────────────────────► Kafka Stream  ──► MongoDB (reports)
-Weather/Traffic APIs ────────────────► Python ML Service ──► Redis (cache)
-Citizen Mobile App ──────────────────► REST API + Socket.IO ──► React Dashboard
-```
-
-## 📦 Services
-
-| Service        | Port  | Description                          |
-|----------------|-------|--------------------------------------|
-| Frontend       | 3000  | React admin dashboard                |
-| Backend API    | 5000  | Node.js / Express + Socket.IO        |
-| ML Service     | 8000  | Python FastAPI — LSTM + XGBoost      |
-| PostgreSQL     | 5432  | Sensor readings + geospatial (PostGIS)|
-| MongoDB        | 27017 | Reports, alerts, users               |
-| MQTT Broker    | 1883  | IoT sensor data ingestion            |
-| Kafka          | 9092  | High-volume streaming buffer         |
-| Redis          | 6379  | Caching + session storage            |
-
----
-
-## 🛠️ Local Development (without Docker)
+If you prefer to run services manually for debugging:
 
 ### Prerequisites
-- Node.js 18+
-- Python 3.11+
-- PostgreSQL 15 with PostGIS
-- MongoDB 6+
-- Mosquitto MQTT broker
+- Node.js 18+ & Python 3.11+
+- PostgreSQL 15 + PostGIS
+- MongoDB 6+ & Redis Server
+- Mosquitto MQTT & Apache Kafka
 
-### Step 1 — Database Setup
+### Startup Sequence
+
+**1. Database Initialization**
 ```bash
 createdb aqi_db
 psql -d aqi_db -c "CREATE EXTENSION postgis;"
 psql -d aqi_db -f database/schema.sql
 ```
 
-### Step 2 — Backend
+**2. Node.js Backend (Port 5000)**
 ```bash
 cd backend
 npm install
-cp ../.env.example .env   # edit values
-npm run dev               # starts on :5000
+npm run dev
 ```
 
-### Step 3 — ML Service
+**3. Python ML Engine (Port 8000)**
 ```bash
 cd ml-service
 python -m venv venv && source venv/bin/activate
@@ -87,171 +182,63 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Step 4 — Frontend
+**4. React Dashboard (Port 3000)**
 ```bash
 cd frontend
 npm install
-echo "REACT_APP_API_URL=http://localhost:5000" > .env
-npm start    # opens browser on :3000
-```
-
-### Step 5 — Sensor Simulator
-```bash
-cd tools
-npm install mqtt
-node sensor-simulator.js   # publishes fake sensor data to MQTT every 5s
+npm start
 ```
 
 ---
 
-## 🔌 API Reference
+## 🔌 API Reference Guide
 
-### Auth
-| Method | Endpoint                | Description            |
-|--------|-------------------------|------------------------|
-| POST   | /api/v1/auth/login      | Login → JWT token      |
-| POST   | /api/v1/auth/register   | Register new user      |
-| POST   | /api/v1/auth/refresh    | Refresh access token   |
+*All endpoints under `/api/v1/*` (except `/auth/login` and `/aqi/map`) require a valid `Bearer <Token>`.*
 
-### AQI Data
-| Method | Endpoint                     | Description                   |
-|--------|------------------------------|-------------------------------|
-| GET    | /api/v1/aqi/map              | All ward AQI as GeoJSON       |
-| GET    | /api/v1/aqi/ward/:id         | Single ward current + history |
-| GET    | /api/v1/aqi/city             | City average stats            |
-| GET    | /api/v1/aqi/trend            | 24h hourly trend              |
+### Authentication & Users
+- `POST /auth/login` — Authenticate and retrieve JWT.
+- `GET /auth/users` — **[Admin]** Retrieve all registered users.
+- `PATCH /auth/users/:id` — **[Admin]** Update a user's role or operational ward.
 
-### Predictions
-| Method | Endpoint                          | Description               |
-|--------|-----------------------------------|---------------------------|
-| GET    | /api/v1/predictions/ward/:id      | 6h/12h/24h AQI forecast   |
-| GET    | /api/v1/predictions/hotspots      | DBSCAN cluster detection  |
-| GET    | /api/v1/predictions/source/:id    | XGBoost source detection  |
+### Telemetry & AQI
+- `GET /aqi/map` — GeoJSON polygon export of current city-wide AQI.
+- `GET /aqi/ward/:id` — Drill down into a specific ward's historical sensor data.
 
-### Reports & Alerts
-| Method | Endpoint                    | Description              |
-|--------|-----------------------------|--------------------------|
-| POST   | /api/v1/reports             | Submit citizen report    |
-| GET    | /api/v1/reports             | List reports (admin)     |
-| PATCH  | /api/v1/reports/:id/verify  | Verify/reject report     |
-| GET    | /api/v1/alerts              | Get all alerts           |
+### Report Management
+- `POST /reports` — **[Citizen]** Submit a new violation report.
+- `GET /reports` — **[Admin, Officer]** List reports (filtered by assigned officer, status).
+- `PATCH /reports/:id/assign` — **[Admin]** Assign report to an officer.
+- `PATCH /reports/:id/action` — **[Officer, Admin]** Update investigative status.
+
+### Machine Learning
+- `GET /predictions/ward/:id` — Fetch LSTM time-series forecast.
+- `GET /predictions/hotspots` — Run DBSCAN cluster analysis on live anomalies.
+- `GET /predictions/source/:id` — Run XGBoost source apportionment.
 
 ---
 
-## 🤖 ML Models
+## 📁 Directory Structure
 
-### 1. AQI Predictor (LSTM)
-- **Input**: 72-hour window of [PM2.5, PM10, CO, NO2, SO2, O3, temperature, humidity, wind]
-- **Output**: AQI forecast at +6h, +12h, +24h with confidence intervals
-- **Fallback**: Statistical exponential smoothing if model not trained
-
-### 2. Source Detector (XGBoost)
-- **Input**: Current pollutant readings + weather + traffic density
-- **Output**: Source class (construction/traffic/biomass/industrial) + confidence %
-- **Fallback**: Rule-based attribution
-
-### 3. Hotspot Detector (DBSCAN)
-- **Input**: GPS coordinates of high-AQI sensors
-- **Output**: GeoJSON cluster polygons with severity labels
-
-### Training new models
-```bash
-cd ml-service
-python -c "
-from app.models.aqi_predictor import AQIPredictor
-model = AQIPredictor.build_training_model()
-# Load your training data → model.fit(X_train, y_train, epochs=50)
-model.save('app/models/saved/aqi_lstm.h5')
-print('Model saved.')
-"
-```
-
----
-
-## 🔔 Real-Time Features (Socket.IO)
-
-Connect from your frontend:
-```javascript
-const socket = io('http://localhost:5000');
-socket.emit('subscribe:ward', 8);     // subscribe to ward 8 updates
-socket.on('aqi:update', (data) => console.log(data));
-socket.on('alert:new',  (alert) => console.log(alert));
-socket.on('city:update',(data)  => console.log(data));
-```
-
----
-
-## 📁 Project Structure
-
-```
+```text
 aqi-project/
-├── backend/                   Node.js API
+├── backend/                   # Node.js API
 │   └── src/
-│       ├── routes/            REST API endpoints
-│       ├── services/          MQTT, Kafka, Alerts, AQI Calculator
-│       ├── models/            MongoDB schemas
-│       └── middleware/        Auth, error handler
-├── ml-service/                Python FastAPI
+│       ├── routes/            # REST API controllers
+│       ├── services/          # MQTT, Kafka, Cron Jobs
+│       ├── models/            # Mongoose schemas
+│       └── middleware/        # JWT Auth & Role Guards
+├── ml-service/                # Python FastAPI
 │   └── app/
-│       ├── main.py            API endpoints
-│       └── models/            LSTM, XGBoost, DBSCAN
-├── frontend/                  React TypeScript dashboard
+│       └── models/            # LSTM, XGBoost, DBSCAN implementations
+├── frontend/                  # React + TypeScript UI
 │   └── src/
-│       ├── pages/             Dashboard, Map, Forecast, etc.
-│       ├── components/        Charts, MetricCards
-│       ├── context/           Auth, Socket providers
-│       └── services/          Axios API calls
-├── database/
-│   └── schema.sql             PostgreSQL + PostGIS schema
-├── infra/
-│   ├── nginx/nginx.conf       Reverse proxy config
-│   └── mosquitto/             MQTT broker config
-├── tools/
-│   └── sensor-simulator.js   IoT data simulator
-├── docker-compose.yml         Full stack orchestration
-└── .env.example               Environment template
+│       ├── pages/             # Role-specific dashboard views
+│       ├── components/        # Glassmorphism UI, Charts, Maps
+│       └── context/           # Auth, Sockets, and Theme Context
+├── database/                  # PostGIS schemas
+├── docker-compose.yml         # Container definitions
+└── tools/                     # IoT Simulation Scripts
 ```
 
 ---
-
-## 🚀 Production Deployment
-
-### AWS / GCP Checklist
-- [ ] Change all passwords in .env (PG_PASS, JWT_SECRET, etc.)
-- [ ] Set FRONTEND_URL to your domain
-- [ ] Enable HTTPS in nginx (add SSL cert)
-- [ ] Set S3_BUCKET for citizen report photos
-- [ ] Set Firebase credentials for push notifications
-- [ ] Set up pg_cron for materialized view refresh
-- [ ] Configure Kafka retention policies
-- [ ] Set up CloudWatch / Prometheus monitoring
-
-### Scale horizontally
-```bash
-docker-compose up -d --scale backend=3 --scale ml-service=2
-```
-
----
-
-## 🧪 Testing
-
-```bash
-# Backend unit tests
-cd backend && npm test
-
-# ML service tests
-cd ml-service && pytest
-
-# E2E tests
-cd frontend && npm test
-
-# API smoke test
-curl http://localhost:5000/health
-curl http://localhost:8000/health
-```
-
----
-
-## 📞 Support
-
-Open an issue on GitHub or refer to the full project documentation (`AQI_Project_Documentation.docx`).
+*Built for the future of sustainable, data-driven smart cities.*

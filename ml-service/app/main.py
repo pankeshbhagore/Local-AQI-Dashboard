@@ -5,6 +5,7 @@ All endpoints return valid responses even without ML models.
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+import fastapi
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import numpy as np
@@ -14,11 +15,25 @@ from datetime import datetime, timedelta
 from app.models.aqi_predictor import AQIPredictor
 from app.models.detectors import SourceDetector, HotspotDetector
 
+import os
+from fastapi.security import APIKeyHeader
+
 app = FastAPI(title="AQI ML Service", version="1.0.0")
+
+# ── Security ───────────────────────────────────────────────────────────────
+API_KEY = os.getenv("ML_API_KEY", "secure_ml_api_key_123") # In production, ensure .env is securely loaded
+api_key_header = APIKeyHeader(name="X-API-Key")
+
+async def verify_api_key(api_key: str = fastapi.Security(api_key_header)):
+    if api_key != API_KEY:
+        raise HTTPException(status_code=403, detail="Could not validate credentials")
+    return api_key
+
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5000")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[BACKEND_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -62,6 +77,14 @@ class HotspotRequest(BaseModel):
     sensors:   List[SensorPoint]
     threshold: int = 150
 
+class SmokeDetectionRequest(BaseModel):
+    image_url: str
+
+class FederatedWeightRequest(BaseModel):
+    sensor_id: str
+    ward_id: int
+    weights: List[float]
+    bias: float
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
 @app.get("/health")
@@ -76,7 +99,7 @@ def health():
     }
 
 
-@app.post("/predict/aqi")
+@app.post("/predict/aqi", dependencies=[fastapi.Depends(verify_api_key)])
 def predict_aqi(req: PredictRequest):
     if len(req.features) < 2:
         raise HTTPException(422, "Need at least 2 time steps for prediction")
@@ -113,7 +136,7 @@ def predict_aqi(req: PredictRequest):
     }
 
 
-@app.post("/detect/source")
+@app.post("/detect/source", dependencies=[fastapi.Depends(verify_api_key)])
 def detect_source(req: SourceRequest):
     try:
         result = detector.predict(req.features)
@@ -128,7 +151,7 @@ def detect_source(req: SourceRequest):
     }
 
 
-@app.post("/detect/hotspots")
+@app.post("/detect/hotspots", dependencies=[fastapi.Depends(verify_api_key)])
 def detect_hotspots(req: HotspotRequest):
     if len(req.sensors) < 2:
         return {"hotspots": [], "total": 0}
@@ -141,6 +164,27 @@ def detect_hotspots(req: HotspotRequest):
         return {"hotspots": [], "total": 0, "error": str(e)}
     return {"hotspots": clusters, "total": len(clusters)}
 
+
+@app.post("/detect/smoke", dependencies=[fastapi.Depends(verify_api_key)])
+def detect_smoke(req: SmokeDetectionRequest):
+    # Mock Computer Vision CNN for smoke/fire detection
+    import random
+    confidence = random.uniform(0.60, 0.99)
+    is_smoke = confidence > 0.85
+    return {
+        "smoke_detected": is_smoke,
+        "confidence": round(confidence, 2),
+        "model": "ResNet50_Mock"
+    }
+
+@app.post("/federated/update", dependencies=[fastapi.Depends(verify_api_key)])
+def federated_update(req: FederatedWeightRequest):
+    # In a real app, this would aggregate weights using FedAvg algorithm
+    return {
+        "status": "success",
+        "message": f"Aggregated local anomaly weights from sensor {req.sensor_id}",
+        "global_model_version": "v1.2.4"
+    }
 
 if __name__ == "__main__":
     import uvicorn

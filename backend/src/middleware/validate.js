@@ -12,7 +12,7 @@ const schemas = {
     password: Joi.string().min(6).required(),
     name:     Joi.string().max(100).optional().allow(''),
     phone:    Joi.string().max(20).optional().allow(''),
-    role:     Joi.string().valid('admin','officer','citizen','superuser').optional(),
+    role:     Joi.string().valid('admin','officer','citizen').optional(),
     wardId:   Joi.alternatives().try(
       Joi.number().integer().min(1),
       Joi.string().regex(/^\d+$/)

@@ -54,7 +54,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // GET /api/v1/hotspots/:id/recommendations
-router.get('/:id/recommendations', authenticate, authorize(['admin','officer','superuser']), async (req, res, next) => {
+router.get('/:id/recommendations', authenticate, authorize(['admin','officer']), async (req, res, next) => {
   try {
     const { rows: [h] } = await pgPool.query(
       'SELECT source_type, avg_aqi FROM pollution_hotspots WHERE id = $1',
@@ -81,7 +81,7 @@ router.get('/:id/recommendations', authenticate, authorize(['admin','officer','s
 });
 
 // PATCH /api/v1/hotspots/:id/resolve
-router.patch('/:id/resolve', authenticate, authorize(['admin','superuser']), async (req, res, next) => {
+router.patch('/:id/resolve', authenticate, authorize(['admin']), async (req, res, next) => {
   try {
     const { rows: [h] } = await pgPool.query(
       `UPDATE pollution_hotspots SET status='resolved', resolved_at=NOW() WHERE id=$1 RETURNING *`,

@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aqi-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: aqi-backend
+  template:
+    metadata:
+      labels:
+        app: aqi-backend
+    spec:
+      containers:
+      - name: aqi-backend
+        image: aqi-backend:latest
+        ports:
+        - containerPort: 5000
+        envFrom:
+        - configMapRef:
+            name: aqi-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aqi-backend-svc
+spec:
+  selector:
+    app: aqi-backend
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aqi-ml-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: aqi-ml-service
+  template:
+    metadata:
+      labels:
+        app: aqi-ml-service
+    spec:
+      containers:
+      - name: aqi-ml-service
+        image: aqi-ml-service:latest
+        ports:
+        - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aqi-ml-service-svc
+spec:
+  selector:
+    app: aqi-ml-service
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aqi-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: aqi-frontend
+  template:
+    metadata:
+      labels:
+        app: aqi-frontend
+    spec:
+      containers:
+      - name: aqi-frontend
+        image: aqi-frontend:latest
+        ports:
+        - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aqi-frontend-svc
+spec:
+  type: LoadBalancer
+  selector:
+    app: aqi-frontend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000

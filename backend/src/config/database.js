@@ -12,6 +12,7 @@ const pgPool = new Pool({
   max:                     20,
   idleTimeoutMillis:       30000,
   connectionTimeoutMillis: 5000,
+  ...(process.env.PG_SSL === 'true' && { ssl: { rejectUnauthorized: false } }),
 });
 
 pgPool.on('error', (err) => {

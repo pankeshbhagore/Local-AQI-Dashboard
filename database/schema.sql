@@ -1,6 +1,7 @@
 -- AQI Dashboard — PostgreSQL + PostGIS Schema (Delhi)
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS timescaledb;
 
 CREATE TABLE IF NOT EXISTS wards (
     id          SERIAL PRIMARY KEY,
@@ -8,6 +9,8 @@ CREATE TABLE IF NOT EXISTS wards (
     zone        VARCHAR(50),
     population  INTEGER,
     area_sqkm   DECIMAL(8,2),
+    hospital_respiratory_admissions INTEGER DEFAULT 0,
+    elderly_population_pct DECIMAL(5,2) DEFAULT 0.0,
     boundary    GEOGRAPHY(POLYGON, 4326),
     centroid    GEOGRAPHY(POINT, 4326),
     created_at  TIMESTAMPTZ DEFAULT NOW()
@@ -50,6 +53,9 @@ CREATE TABLE IF NOT EXISTS sensor_readings (
 CREATE INDEX IF NOT EXISTS idx_readings_ward_time ON sensor_readings(ward_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_readings_time ON sensor_readings(recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_readings_aqi ON sensor_readings(aqi_calculated);
+
+-- Convert to TimescaleDB hypertable
+SELECT create_hypertable('sensor_readings', 'recorded_at', if_not_exists => TRUE);
 
 CREATE TABLE IF NOT EXISTS aqi_predictions (
     id                 SERIAL PRIMARY KEY,

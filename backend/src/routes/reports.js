@@ -3,9 +3,14 @@ const express = require('express');
 const router  = express.Router();
 const multer  = require('multer');
 const Report  = require('../models/Report');
+const User    = require('../models/User');
 const { Alert } = require('../models');
 const { authenticate, authorize } = require('../middleware/auth');
+const { validate } = require('../middleware/validate');
 const { pgPool } = require('../config/database');
+const axios   = require('axios');
+const ML_SERVICE = process.env.ML_SERVICE_URL || 'http://localhost:8000';
+const ML_API_KEY = process.env.ML_API_KEY || 'secure_ml_api_key_123';
 
 // S3 optional
 let s3Client = null;
@@ -17,7 +22,7 @@ if (S3_BUCKET) {
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // ── POST /api/v1/reports — Citizen submits report ─────────────────────────
-router.post('/', authenticate, upload.array('photos', 5), async (req, res, next) => {
+router.post('/', authenticate, upload.array('photos', 5), validate('submitReport'), async (req, res, next) => {
   try {
     const { wardId, pollutionType, severity, description, lat, lng, address } = req.body;
     if (!wardId || !pollutionType) return res.status(400).json({ error: 'wardId and pollutionType are required' });
@@ -72,12 +77,28 @@ router.post('/', authenticate, upload.array('photos', 5), async (req, res, next)
       });
     }
 
+    // Task 5: Satellite & Drone CV Validation
+    if (photos.length > 0) {
+      axios.post(`${ML_SERVICE}/detect/smoke`, { image_url: photos[0].url }, { 
+        timeout: 5000,
+        headers: { 'X-API-Key': ML_API_KEY }
+      })
+        .then(async (cvRes) => {
+          if (cvRes.data.smoke_detected && cvRes.data.confidence > 0.85) {
+            report.priority = 1; // Escalate to emergency
+            report.adminNotes = `[AUTO-CV] High confidence (${cvRes.data.confidence}) smoke/fire detected from image.`;
+            await report.save();
+            if (io) io.to('staff').emit('report:updated', { _id: report._id, priority: 1, adminNotes: report.adminNotes });
+          }
+        }).catch(err => console.error('CV validation failed:', err.message));
+    }
+
     res.status(201).json({ success: true, reportId: report._id, message: 'Report submitted successfully. A field officer will review it shortly.' });
   } catch (err) { next(err); }
 });
 
 // ── GET /api/v1/reports — Staff: list all reports ─────────────────────────
-router.get('/', authenticate, authorize(['admin','officer','superuser']), async (req, res, next) => {
+router.get('/', authenticate, authorize(['admin','officer']), async (req, res, next) => {
   try {
     const { wardId, status, type, page = 1, limit = 20, assignedTo, priority, startDate, endDate } = req.query;
     const filter = {};
@@ -106,7 +127,7 @@ router.get('/', authenticate, authorize(['admin','officer','superuser']), async 
 });
 
 // ── GET /api/v1/reports/stats — Admin analytics ───────────────────────────
-router.get('/stats', authenticate, authorize(['admin','superuser']), async (req, res, next) => {
+router.get('/stats', authenticate, authorize(['admin']), async (req, res, next) => {
   try {
     const [total, pending, assigned, investigating, verified, rejected, resolved, byType, bySeverity, byWard] = await Promise.all([
       Report.countDocuments(),
@@ -152,7 +173,7 @@ router.get('/:id', authenticate, async (req, res, next) => {
 });
 
 // ── PATCH /api/v1/reports/:id/assign — Admin assigns to officer ───────────
-router.patch('/:id/assign', authenticate, authorize(['admin','superuser']), async (req, res, next) => {
+router.patch('/:id/assign', authenticate, authorize(['admin']), async (req, res, next) => {
   try {
     const { officerId, officerName, note } = req.body;
     if (!officerId) return res.status(400).json({ error: 'officerId required' });
@@ -185,7 +206,7 @@ router.patch('/:id/assign', authenticate, authorize(['admin','superuser']), asyn
 });
 
 // ── PATCH /api/v1/reports/:id/action — Officer takes action ──────────────
-router.patch('/:id/action', authenticate, authorize(['officer','admin','superuser']), async (req, res, next) => {
+router.patch('/:id/action', authenticate, authorize(['officer','admin']), async (req, res, next) => {
   try {
     const { action, note, status } = req.body;
     // action: 'investigating' | 'on_site' | 'action_taken' | 'cannot_verify'
@@ -204,16 +225,27 @@ router.patch('/:id/action', authenticate, authorize(['officer','admin','superuse
       }
     }
 
-    const report = await Report.findByIdAndUpdate(req.params.id, update, { new: true });
+    const report = await Report.findByIdAndUpdate(req.params.id, update);
     if (!report) return res.status(404).json({ error: 'Report not found' });
+    
+    // Gamification: Give points if newly verified
+    if (status === 'verified' && report.verificationStatus !== 'verified') {
+      await User.findByIdAndUpdate(report.userId, {
+        $inc: { greenPoints: 50 },
+        $push: { rewardHistory: { reason: 'Report Verified', points: 50 } }
+      });
+    }
+
+    // Refresh report for emission
+    const updatedReport = await Report.findById(req.params.id);
 
     // Notify admin + citizen
     const io = req.app.get('io');
     if (io) {
-      io.to('staff').emit('report:updated', { _id: report._id, verificationStatus: report.verificationStatus, officerAction: action });
-      io.to(`citizen:${report.userId}`).emit('report:status', {
-        reportId: report._id,
-        status:   report.verificationStatus,
+      io.to('staff').emit('report:updated', { _id: updatedReport._id, verificationStatus: updatedReport.verificationStatus, officerAction: action });
+      io.to(`citizen:${updatedReport.userId}`).emit('report:status', {
+        reportId: updatedReport._id,
+        status:   updatedReport.verificationStatus,
         action,
         note,
         officerName: req.user.name,
@@ -225,7 +257,7 @@ router.patch('/:id/action', authenticate, authorize(['officer','admin','superuse
 });
 
 // ── PATCH /api/v1/reports/:id/verify — Admin final verify ────────────────
-router.patch('/:id/verify', authenticate, authorize(['admin','superuser']), async (req, res, next) => {
+router.patch('/:id/verify', authenticate, authorize(['admin']), async (req, res, next) => {
   try {
     const { status, notes } = req.body;
     if (!['verified','rejected','resolved'].includes(status))
@@ -236,8 +268,15 @@ router.patch('/:id/verify', authenticate, authorize(['admin','superuser']), asyn
       verifiedBy:  req.user.name || req.user.email,
       verifiedAt:  new Date(),
       adminNotes:  notes || '',
-    }, { new: true });
+    });
     if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    if (status === 'verified' && report.verificationStatus !== 'verified') {
+      await User.findByIdAndUpdate(report.userId, {
+        $inc: { greenPoints: 50 },
+        $push: { rewardHistory: { reason: 'Report Verified (Admin)', points: 50 } }
+      });
+    }
 
     const io = req.app.get('io');
     if (io) {

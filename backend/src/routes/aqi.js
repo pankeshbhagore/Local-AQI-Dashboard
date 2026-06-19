@@ -62,7 +62,10 @@ router.get('/ward/:wardId', async (req, res, next) => {
     const { hours = 24 } = req.query;
 
     const latest = await pgPool.query(
-      `SELECT * FROM sensor_readings WHERE ward_id = $1 ORDER BY recorded_at DESC LIMIT 1`,
+      `SELECT sr.*, w.hospital_respiratory_admissions, w.elderly_population_pct
+       FROM sensor_readings sr
+       JOIN wards w ON sr.ward_id = w.id
+       WHERE sr.ward_id = $1 ORDER BY sr.recorded_at DESC LIMIT 1`,
       [wardId]
     );
 
@@ -79,8 +82,17 @@ router.get('/ward/:wardId', async (req, res, next) => {
 
     if (!latest.rows.length) return res.status(404).json({ error: 'Ward not found or no data' });
 
+    const current = latest.rows[0];
+    const baseScore = current.aqi_calculated / 500; // 0 to 1
+    const healthMultiplier = 1 + (current.elderly_population_pct / 100) + (current.hospital_respiratory_admissions / 1000);
+    const vulnerabilityScore = Math.min(100, Math.round(baseScore * healthMultiplier * 100));
+
     res.json({
-      current: latest.rows[0],
+      current: {
+        ...current,
+        vulnerability_score: vulnerabilityScore,
+        vulnerability_level: vulnerabilityScore > 75 ? 'CRITICAL' : vulnerabilityScore > 50 ? 'HIGH' : 'MODERATE'
+      },
       history: history.rows,
     });
   } catch (err) { next(err); }

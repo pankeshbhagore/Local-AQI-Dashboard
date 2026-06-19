@@ -21,6 +21,9 @@ const reportRoutes     = require('./routes/reports');
 const alertRoutes      = require('./routes/alerts');
 const predictionRoutes = require('./routes/predictions');
 const hotspotRoutes    = require('./routes/hotspots');
+const gamificationRoutes = require('./routes/gamification');
+const trafficRoutes    = require('./routes/traffic');
+const copilotRoutes    = require('./routes/copilot');
 const errorHandler     = require('./middleware/errorHandler');
 
 const app    = express();
@@ -69,6 +72,9 @@ app.use('/api/v1/reports',     reportRoutes);
 app.use('/api/v1/alerts',      alertRoutes);
 app.use('/api/v1/predictions', predictionRoutes);
 app.use('/api/v1/hotspots',    hotspotRoutes);
+app.use('/api/v1/gamification', gamificationRoutes);
+app.use('/api/v1/traffic',     trafficRoutes);
+app.use('/api/v1/copilot',     copilotRoutes);
 
 app.get('/health', (req, res) => res.json({ status:'ok', timestamp: new Date().toISOString(), version:'2.0.0' }));
 app.use((req, res) => res.status(404).json({ error: `${req.method} ${req.path} not found` }));
@@ -78,7 +84,7 @@ app.use(errorHandler);
 io.on('connection', (socket) => {
   // Client sends their role+userId to join appropriate rooms
   socket.on('auth', ({ role, userId }) => {
-    if (role === 'admin' || role === 'superuser') socket.join('staff');
+    if (role === 'admin') socket.join('staff');
     if (role === 'officer') {
       socket.join('staff');
       socket.join(`officer:${userId}`);
@@ -90,7 +96,7 @@ io.on('connection', (socket) => {
   socket.on('subscribe:staff',  ()       => socket.join('staff'));
   socket.on('auth', (data) => {
     if (data && data.role) {
-      if (data.role === 'admin' || data.role === 'superuser') socket.join('staff');
+      if (data.role === 'admin') socket.join('staff');
       if (data.role === 'officer' && data.userId) socket.join(`officer:${data.userId}`);
       if (data.role === 'citizen' && data.userId) socket.join(`citizen:${data.userId}`);
     }
@@ -119,7 +125,7 @@ async function start() {
       console.log(`   Health: http://localhost:${PORT}/health\n`);
     });
   } catch (err) {
-    console.error('❌ Startup failed:', err.message);
+    console.error('❌ Startup failed:', err);
     process.exit(1);
   }
 }

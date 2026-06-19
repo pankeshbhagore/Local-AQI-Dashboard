@@ -7,8 +7,19 @@ const User     = require('../models/User');
 const { validate }              = require('../middleware/validate');
 const { authenticate, authorize } = require('../middleware/auth');
 
-const JWT_SECRET  = process.env.JWT_SECRET  || 'aqi_dashboard_jwt_secret_change_in_production_use_64_chars';
-const JWT_REFRESH = process.env.JWT_REFRESH || 'aqi_dashboard_refresh_secret_also_change_in_prod_64_chars';
+const JWT_SECRET  = process.env.JWT_SECRET;
+const JWT_REFRESH = process.env.JWT_REFRESH;
+if (!JWT_SECRET || !JWT_REFRESH) {
+  console.error("FATAL ERROR: JWT_SECRET or JWT_REFRESH is not defined.");
+  process.exit(1);
+}
+
+const rateLimit = require('express-rate-limit');
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // limit each IP to 5 login requests per windowMs
+  message: { error: 'Too many login attempts from this IP, please try again after 15 minutes' }
+});
 
 function signToken(user) {
   return jwt.sign(
@@ -36,7 +47,7 @@ router.post('/register', validate('register'), async (req, res, next) => {
       passwordHash,
       name:   name   || '',
       phone:  phone  || '',
-      role:   role   || 'citizen',
+      role:   'citizen',
       wardId: wardId || null,
     });
 
@@ -49,7 +60,7 @@ router.post('/register', validate('register'), async (req, res, next) => {
 });
 
 // ── POST /api/v1/auth/login ────────────────────────────────────────────────
-router.post('/login', validate('login'), async (req, res, next) => {
+router.post('/login', loginLimiter, validate('login'), async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
@@ -108,7 +119,7 @@ router.patch('/fcm-token', authenticate, async (req, res, next) => {
 });
 
 // ── GET /api/v1/auth/users   (admin only) ─────────────────────────────────
-router.get('/users', authenticate, authorize(['admin', 'superuser']), async (req, res, next) => {
+router.get('/users', authenticate, authorize(['admin']), async (req, res, next) => {
   try {
     const users = await User.find({}).select('-passwordHash').sort({ createdAt: -1 });
     res.json({ users, total: users.length });
@@ -116,7 +127,7 @@ router.get('/users', authenticate, authorize(['admin', 'superuser']), async (req
 });
 
 // ── PATCH /api/v1/auth/users/:id   (admin only) ───────────────────────────
-router.patch('/users/:id', authenticate, authorize(['admin', 'superuser']), async (req, res, next) => {
+router.patch('/users/:id', authenticate, authorize(['admin']), async (req, res, next) => {
   try {
     const { isActive, role, wardId, name } = req.body;
     const update = {};
@@ -131,8 +142,8 @@ router.patch('/users/:id', authenticate, authorize(['admin', 'superuser']), asyn
   } catch (err) { next(err); }
 });
 
-// ── DELETE /api/v1/auth/users/:id   (superuser only) ─────────────────────
-router.delete('/users/:id', authenticate, authorize(['superuser']), async (req, res, next) => {
+// ── DELETE /api/v1/auth/users/:id   (admin only) ─────────────────────
+router.delete('/users/:id', authenticate, authorize(['admin']), async (req, res, next) => {
   try {
     await User.findByIdAndDelete(req.params.id);
     res.json({ success: true });

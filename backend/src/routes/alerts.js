@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const { Alert } = require('../models');
 const { authenticate, authorize } = require('../middleware/auth');
+const { validate } = require('../middleware/validate');
 
 // GET /api/v1/alerts  — list alerts with filters
 router.get('/', authenticate, async (req, res, next) => {
@@ -38,7 +39,7 @@ router.get('/:id', authenticate, async (req, res, next) => {
 });
 
 // PATCH /api/v1/alerts/:id/resolve  — admin resolves alert
-router.patch('/:id/resolve', authenticate, authorize(['admin', 'officer', 'superuser']), async (req, res, next) => {
+router.patch('/:id/resolve', authenticate, authorize(['admin', 'officer']), async (req, res, next) => {
   try {
     const alert = await Alert.findByIdAndUpdate(req.params.id, {
       resolved: true,
@@ -56,8 +57,8 @@ router.patch('/:id/resolve', authenticate, authorize(['admin', 'officer', 'super
   } catch (err) { next(err); }
 });
 
-// DELETE /api/v1/alerts/:id  — superuser only
-router.delete('/:id', authenticate, authorize(['superuser']), async (req, res, next) => {
+// DELETE /api/v1/alerts/:id  — admin only
+router.delete('/:id', authenticate, authorize(['admin']), async (req, res, next) => {
   try {
     await Alert.findByIdAndDelete(req.params.id);
     res.json({ success: true });
@@ -65,7 +66,7 @@ router.delete('/:id', authenticate, authorize(['superuser']), async (req, res, n
 });
 
 // POST /api/v1/alerts/manual  — admin creates manual alert
-router.post('/manual', authenticate, authorize(['admin', 'superuser']), async (req, res, next) => {
+router.post('/manual', authenticate, authorize(['admin']), validate('manualAlert'), async (req, res, next) => {
   try {
     const { wardId, wardName, message, severity, recommendations } = req.body;
     const alert = await Alert.create({

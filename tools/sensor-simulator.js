@@ -6,8 +6,11 @@
  */
 require('dotenv').config({ path: '../.env' });
 const mqtt = require('mqtt');
+const axios = require('axios');
 
 const BROKER   = process.env.MQTT_BROKER || 'mqtt://localhost:1883';
+const ML_URL   = process.env.ML_SERVICE_URL || 'http://localhost:8000';
+const ML_API_KEY = process.env.ML_API_KEY || 'secure_ml_api_key_123';
 const INTERVAL = parseInt(process.argv[2] || '5000');
 
 const client = mqtt.connect(BROKER, {
@@ -72,11 +75,26 @@ client.on('connect', () => {
   WARDS.forEach(w => console.log(`  Ward ${w.id}: ${w.name} (${w.type})`));
   console.log('');
 
+  let cycle = 0;
   function publishAll() {
+    cycle++;
     WARDS.forEach(ward => {
       const sensorId = `DL-${String(ward.id).padStart(3, '0')}`;
       const reading  = generateReading(ward);
       client.publish(`sensors/${sensorId}/readings`, JSON.stringify(reading), { qos: 1 });
+      
+      // Task 7: Edge Federated Learning (Simulate edge model update every 10 cycles)
+      if (cycle % 10 === 0 && Math.random() > 0.5) {
+        const localWeights = [Math.random(), Math.random() * 2, -Math.random()];
+        axios.post(`${ML_URL}/federated/update`, {
+          sensor_id: sensorId,
+          ward_id: ward.id,
+          weights: localWeights,
+          bias: Math.random()
+        }, {
+          headers: { 'X-API-Key': ML_API_KEY }
+        }).catch(() => {});
+      }
     });
     console.log(`[${new Date().toLocaleTimeString()}] Published ${WARDS.length} Delhi sensor readings`);
   }

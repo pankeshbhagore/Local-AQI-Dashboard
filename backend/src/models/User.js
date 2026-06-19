@@ -22,7 +22,7 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type:    String,
-      enum:    ['admin', 'officer', 'citizen', 'superuser'],
+      enum:    ['admin', 'officer', 'citizen'],
       default: 'citizen',
     },
     name: {
@@ -42,6 +42,17 @@ const userSchema = new mongoose.Schema(
       type:    String,
       default: null,  // Firebase Cloud Messaging push token
     },
+    greenPoints: {
+      type:    Number,
+      default: 0,
+    },
+    rewardHistory: [
+      {
+        reason: String,
+        points: Number,
+        date: { type: Date, default: Date.now }
+      }
+    ],
     preferences: {
       emailAlerts:  { type: Boolean, default: true  },
       smsAlerts:    { type: Boolean, default: false },
@@ -60,6 +71,7 @@ const userSchema = new mongoose.Schema(
 userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ role: 1 });
 userSchema.index({ wardId: 1 });
+userSchema.index({ greenPoints: -1 });
 
 // Virtual: full profile (excludes passwordHash)
 userSchema.methods.toPublicJSON = function () {
@@ -69,6 +81,7 @@ userSchema.methods.toPublicJSON = function () {
     name:        this.name,
     role:        this.role,
     wardId:      this.wardId,
+    greenPoints: this.greenPoints,
     preferences: this.preferences,
     createdAt:   this.createdAt,
     lastLogin:   this.lastLogin,

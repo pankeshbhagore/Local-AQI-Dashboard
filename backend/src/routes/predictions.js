@@ -6,12 +6,13 @@ const { pgPool } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 
 const ML_SERVICE = process.env.ML_SERVICE_URL || 'http://ml-service:8000';
+const ML_API_KEY = process.env.ML_API_KEY || 'secure_ml_api_key_123';
 const ML_TIMEOUT = 8000;
 
 async function callML(endpoint, data) {
   const res = await axios.post(`${ML_SERVICE}${endpoint}`, data, {
     timeout: ML_TIMEOUT,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': ML_API_KEY },
   });
   return res.data;
 }
