@@ -132,6 +132,18 @@ function calcAQI(pm25) {
   return 500;
 }
 
+async function seedWards() {
+  console.log('🌱 Seeding 101 Delhi wards…');
+  for (const w of DELHI_WARDS) {
+    await pool.query(
+      `INSERT INTO wards (id, name, zone, centroid)
+       VALUES ($1, $2, $3, ST_SetSRID(ST_MakePoint($4,$5),4326))
+       ON CONFLICT (id) DO NOTHING`,
+      [w.id, w.name, w.district, w.lng, w.lat]
+    );
+  }
+}
+
 async function seedSensors() {
   console.log('🌱 Seeding 101 Delhi ward sensors…');
   for (const w of DELHI_WARDS) {
@@ -205,6 +217,7 @@ async function main() {
   try { await pool.query('SELECT 1'); console.log('✅ PostgreSQL connected\n'); }
   catch(e) { console.error('❌ PG failed:', e.message); process.exit(1); }
   try {
+    await seedWards();
     await seedSensors();
     await seedReadings();
     await seedUsers();

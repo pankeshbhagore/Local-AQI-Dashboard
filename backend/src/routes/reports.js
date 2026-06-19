@@ -256,8 +256,8 @@ router.patch('/:id/action', authenticate, authorize(['officer','admin']), async 
   } catch (err) { next(err); }
 });
 
-// ── PATCH /api/v1/reports/:id/verify — Admin final verify ────────────────
-router.patch('/:id/verify', authenticate, authorize(['admin']), async (req, res, next) => {
+// ── PATCH /api/v1/reports/:id/verify — Admin/Officer final verify ────────────
+router.patch('/:id/verify', authenticate, authorize(['admin', 'officer']), async (req, res, next) => {
   try {
     const { status, notes } = req.body;
     if (!['verified','rejected','resolved'].includes(status))

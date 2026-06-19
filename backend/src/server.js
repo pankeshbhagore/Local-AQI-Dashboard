@@ -94,13 +94,6 @@ io.on('connection', (socket) => {
   socket.on('subscribe:ward',   (wardId) => socket.join(`ward:${wardId}`));
   socket.on('subscribe:alerts', ()       => socket.join('alerts'));
   socket.on('subscribe:staff',  ()       => socket.join('staff'));
-  socket.on('auth', (data) => {
-    if (data && data.role) {
-      if (data.role === 'admin') socket.join('staff');
-      if (data.role === 'officer' && data.userId) socket.join(`officer:${data.userId}`);
-      if (data.role === 'citizen' && data.userId) socket.join(`citizen:${data.userId}`);
-    }
-  });
   socket.on('disconnect', () => {});
 });
 

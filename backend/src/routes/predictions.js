@@ -4,6 +4,7 @@ const router  = express.Router();
 const axios   = require('axios');
 const { pgPool } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
+const { OpenAI } = require('openai');
 
 const ML_SERVICE = process.env.ML_SERVICE_URL || 'http://ml-service:8000';
 const ML_API_KEY = process.env.ML_API_KEY || 'secure_ml_api_key_123';
@@ -156,6 +157,49 @@ router.get('/source/:wardId', async (req, res, next) => {
       });
     }
 
+    if (process.env.OPENAI_API_KEY) {
+      try {
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const prompt = `You are an AI environmental scientist. Based on the following raw sensor data for a city ward, determine the single most likely dominant source of pollution, and provide 3 actionable policy recommendations for the city administration.
+        
+Sensor Data:
+PM2.5: ${latest.pm25} µg/m³
+PM10: ${latest.pm10} µg/m³
+CO: ${latest.co} mg/m³
+NO2: ${latest.no2} ppb
+SO2: ${latest.so2} ppb
+O3: ${latest.o3} ppb
+Temperature: ${latest.temperature}°C
+Humidity: ${latest.humidity}%
+Wind Speed: ${latest.wind_speed} m/s
+Vehicle Density: ${latest.vehicle_density} cars/hour
+
+Return a JSON object strictly matching this format:
+{
+  "predicted_source": "construction_dust" | "vehicle_emissions" | "biomass_burning" | "industrial" | "unknown",
+  "confidence": 0.85,
+  "probabilities": { "construction_dust": 0.1, "vehicle_emissions": 0.7, "biomass_burning": 0.1, "industrial": 0.05, "unknown": 0.05 },
+  "recommendations": ["Action 1", "Action 2", "Action 3"]
+}`;
+
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          response_format: { type: "json_object" },
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.2,
+        });
+
+        const aiResult = JSON.parse(completion.choices[0].message.content);
+        return res.json({
+          ...aiResult,
+          model: 'OpenAI gpt-4o-mini',
+        });
+      } catch (err) {
+        console.error("OpenAI Source Detection Failed:", err.message);
+      }
+    }
+
+    // Fallback if no OpenAI key
     try {
       const result = await callML('/detect/source', { features: latest });
       return res.json(result);
@@ -170,7 +214,7 @@ router.get('/source/:wardId', async (req, res, next) => {
       return res.json({
         predicted_source: src, confidence: 0.65,
         probabilities: { [src]: 0.65, unknown: 0.35 },
-        recommendations: ['Rule-based detection active — train XGBoost for 87% accuracy'],
+        recommendations: ['Rule-based detection active — please configure OpenAI API key for AI analysis'],
         model: 'RuleBasedFallback',
       });
     }

@@ -3,15 +3,16 @@
   "version": "1.0.0",
   "description": "AQI Dashboard utility scripts — IoT simulator and database seeder",
   "scripts": {
-    "seed":          "node seed.js",
-    "simulate":      "node sensor-simulator.js",
+    "seed": "node seed.js",
+    "simulate": "node sensor-simulator.js",
     "simulate:fast": "node sensor-simulator.js 2000"
   },
   "dependencies": {
-    "mqtt":     "^5.3.4",
-    "pg":       "^8.11.3",
+    "axios": "^1.18.0",
+    "bcrypt": "^5.1.1",
+    "dotenv": "^16.3.1",
     "mongoose": "^8.0.3",
-    "bcrypt":   "^5.1.1",
-    "dotenv":   "^16.3.1"
+    "mqtt": "^5.3.4",
+    "pg": "^8.11.3"
   }
 }

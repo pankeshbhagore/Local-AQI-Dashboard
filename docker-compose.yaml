@@ -31,7 +31,7 @@ services:
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
-      timeout: 5s
+      timeout: 15s
       retries: 5
     restart: unless-stopped
 
@@ -114,6 +114,7 @@ services:
       JWT_SECRET:     ${JWT_SECRET:-change_this_jwt_secret_to_something_long_and_random}
       JWT_REFRESH:    ${JWT_REFRESH:-change_this_refresh_secret_also_long_and_random}
       FRONTEND_URL:   http://localhost:3001
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     ports:
       - "5000:5000"
     restart: unless-stopped
